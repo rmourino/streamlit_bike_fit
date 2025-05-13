@@ -1,3 +1,4 @@
+
 import streamlit as st
 from PIL import Image
 import mediapipe as mp
@@ -5,19 +6,24 @@ import numpy as np
 import pandas as pd
 from fpdf import FPDF
 from io import BytesIO
-import cv2
 import tempfile
-import math
 
-# Configuración de página
+# Configuración de la página
 st.set_page_config(
     page_title="Bike Fitting con análisis de postura",
     page_icon="📐",
     layout="wide",
 )
 
+# # Encabezado visual y título
+# st.image(
+#     "https://upload.wikimedia.org/wikipedia/commons/2/28/Cycling_posture_diagram.jpg",
+#     use_column_width=True,
+#     caption="Postura ciclista ideal"
+# )
 st.markdown("<h1 style='text-align: center; color: #2E86AB;'>🚴 Bike Fitting con análisis de postura</h1>", unsafe_allow_html=True)
 
+# Formulario compacto
 col1, col2 = st.columns(2)
 with col1:
     lado = st.radio("Lado del cuerpo:", ("Derecho", "Izquierdo"), horizontal=True)
@@ -29,42 +35,39 @@ if opcion_img == "📸 Cámara":
     img_data = st.camera_input("Toma una foto de tu postura")
 elif opcion_img == "📂 Subir imagen":
     img_data = st.file_uploader("Sube una imagen (JPG, PNG)", type=["jpg", "jpeg", "png"])
-    
+
 if img_data:
-    image = Image.open(img_data)
-    image_np = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    image = Image.open(img_data).convert("RGB")
+    image_np = np.array(image)
 
     mp_drawing = mp.solutions.drawing_utils
     mp_pose = mp.solutions.pose
 
     with mp_pose.Pose(static_image_mode=True) as pose:
-        results = pose.process(cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB))
+        results = pose.process(image_np)
 
         if results.pose_landmarks:
+            image_draw = image.copy()
+            image_draw_np = np.array(image_draw)
             mp_drawing.draw_landmarks(
-                image=image_np,
+                image=image_draw_np,
                 landmark_list=results.pose_landmarks,
                 connections=mp_pose.POSE_CONNECTIONS,
                 landmark_drawing_spec=mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=3),
                 connection_drawing_spec=mp_drawing.DrawingSpec(color=(255, 0, 0), thickness=2)
             )
-
-            st.image(cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB), caption="Postura detectada", use_column_width=True)
+            st.image(Image.fromarray(image_draw_np), caption="Postura detectada", use_column_width=True)
 
             lm = results.pose_landmarks.landmark
             side = "RIGHT" if lado == "Derecho" else "LEFT"
             def p(j): return [lm[getattr(mp_pose.PoseLandmark, f"{side}_{j}").value].x,
-                                    lm[getattr(mp_pose.PoseLandmark, f"{side}_{j}").value].y]
+                              lm[getattr(mp_pose.PoseLandmark, f"{side}_{j}").value].y]
 
-            # def get_angle(a, b, c):
-            #     a, b, c = np.array(a), np.array(b), np.array(c)
-            #     angle = np.arccos(np.clip(np.dot(b - a, c - b) /
-            #                               (np.linalg.norm(b - a) * np.linalg.norm(c - b)), -1.0, 1.0))
-            #     return int(np.degrees(angle))
-            
             def get_angle(a, b, c):
-                ang = math.degrees(math.atan2(c[1] - b[1], c[0] - b[0]) - math.atan2(a[1] - b[1], a[0] - b[0]))
-                return ang + 360 if ang < 0 else ang
+                a, b, c = np.array(a), np.array(b), np.array(c)
+                angle = np.arccos(np.clip(np.dot(b - a, c - b) /
+                                          (np.linalg.norm(b - a) * np.linalg.norm(c - b)), -1.0, 1.0))
+                return int(np.degrees(angle))
 
             angulos = {}
             recomendaciones = []
@@ -79,29 +82,42 @@ if img_data:
                 st.error(f"Error calculando ángulos: {e}")
 
             datos_export = []
+            def clean_text(text):
+                return (
+                    text.replace("→", "->")
+                        .replace("°", " grados")
+                        .replace("á", "a")
+                        .replace("é", "e")
+                        .replace("í", "i")
+                        .replace("ó", "o")
+                        .replace("ú", "u")
+                        .replace("ñ", "n")
+                )
+
             for k, v in angulos.items():
-                msg = f"{k}: {v}° — "
+                msg = f"{k}: {v}° → "
                 if k == "Rodilla":
                     if v < 70:
-                        rec = "muy cerrado → subir el asiento."
+                        rec = "muy cerrado -> subir el asiento."
                     elif v > 150:
-                        rec = "muy abierto → bajar el asiento."
+                        rec = "muy abierto -> bajar el asiento."
                     else:
                         rec = "adecuado."
                 elif k == "Codo":
                     if v < 100:
-                        rec = "muy flexionado → ajustar manillar."
+                        rec = "muy flexionado -> ajustar manillar."
                     elif v > 160:
                         rec = "demasiado extendido."
                     else:
                         rec = "correcto."
                 elif k == "Hombro":
-                    rec = "tensión posible." if v < 40 else "razonable."
+                    rec = "tension posible." if v < 40 else "razonable."
                 elif k == "Cadera":
-                    rec = "cerrado → revisar sillín/manillar." if v < 70 else "correcto."
+                    rec = "cerrado -> revisar sillon/manillar." if v < 70 else "correcto."
                 elif k == "Tobillo":
-                    rec = "fuera de rango → revisar técnica." if v < 80 or v > 120 else "correcto."
-                recomendaciones.append(f"{k}: {v}° → {rec}")
+                    rec = "fuera de rango -> revisar tecnica." if v < 80 or v > 120 else "correcto."
+                msg += rec
+                recomendaciones.append(clean_text(msg))
                 datos_export.append({"Ángulo": k, "Valor": v, "Recomendación": rec})
                 st.markdown(f"**{k}**: {v}° — _{rec}_")
 
@@ -115,22 +131,10 @@ if img_data:
             )
 
             # Guardar imagen temporal
-            img = Image.fromarray(cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB))
+            annotated_img = Image.fromarray(image_draw_np)
             temp_img = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-            img.save(temp_img.name)
+            annotated_img.save(temp_img.name)
             final_img_path = temp_img.name
-
-            def clean_text(text):
-                return (
-                    text.replace("→", "->")
-                        .replace("°", " grados")
-                        .replace("á", "a")
-                        .replace("é", "e")
-                        .replace("í", "i")
-                        .replace("ó", "o")
-                        .replace("ú", "u")
-                        .replace("ñ", "n")
-                )
 
             # PDF
             class PDF(FPDF):
@@ -138,11 +142,10 @@ if img_data:
                     self.set_font("Arial", "B", 14)
                     self.cell(0, 10, "Informe de Bike Fitting", ln=True, align="C")
                     self.ln(10)
-
                 def body(self, recomendaciones, img_path):
                     self.set_font("Arial", "", 12)
                     for line in recomendaciones:
-                        self.multi_cell(0, 10, clean_text(line))
+                        self.multi_cell(0, 10, line)
                         self.ln(1)
                     if img_path:
                         self.ln(5)
@@ -152,7 +155,7 @@ if img_data:
             pdf.add_page()
             pdf.body(recomendaciones, final_img_path)
             pdf_output = BytesIO()
-            pdf_bytes = pdf.output(dest="S").encode("latin-1")
+            pdf_bytes = pdf.output(dest="S").encode("latin-1", errors="ignore")
             pdf_output.write(pdf_bytes)
             pdf_output.seek(0)
 
@@ -162,6 +165,5 @@ if img_data:
                 file_name="bikefitting_informe.pdf",
                 mime="application/pdf"
             )
-
         else:
-            st.error("No se detectó ninguna postura. Intenta con mejor iluminación y muestra el perfil.")
+            st.error("No se detectó postura. Intenta con mejor iluminación y perfil lateral claro.")
