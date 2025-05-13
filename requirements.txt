@@ -4,4 +4,3 @@ mediapipe
 pillow
 pandas
 fpdf
-math
