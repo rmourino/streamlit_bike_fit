@@ -1,6 +1,6 @@
-streamlit
-mediapipe
-pillow
-numpy
-pandas
-fpdf
+streamlit==1.45.0
+mediapipe==0.10.1
+pillow==9.5.0
+numpy==1.24.3
+pandas==2.0.3
+fpdf==1.7.2
